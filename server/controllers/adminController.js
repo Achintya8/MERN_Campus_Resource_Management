@@ -161,8 +161,28 @@ const uploadTimetableExcel = async (req, res) => {
         const resources = await Resource.find();
         const resourcesMap = new Map();
         resources.forEach(r => {
-            resourcesMap.set(r.name.trim().toLowerCase(), r._id);
-            resourcesMap.set(r.name.trim().replace(/\s+/g, '').toLowerCase(), r._id);
+            const raw = r.name.trim().toLowerCase();
+            const noSpace = raw.replace(/\s+/g, '');
+            resourcesMap.set(raw, r._id);
+            resourcesMap.set(noSpace, r._id);
+
+            // Flexible aliases for MCA classrooms
+            if (raw === 'mc213' || noSpace === 'mc213') {
+                resourcesMap.set('213', r._id);
+                resourcesMap.set('mca213', r._id);
+                resourcesMap.set('mca 213', r._id);
+                resourcesMap.set('classroom 213', r._id);
+            }
+            if (raw === 'mc210' || noSpace === 'mc210') {
+                resourcesMap.set('210', r._id);
+                resourcesMap.set('mca210', r._id);
+                resourcesMap.set('mca 210', r._id);
+                resourcesMap.set('classroom 210', r._id);
+            }
+            if (raw === 'mc005' || noSpace === 'mc005') {
+                resourcesMap.set('005', r._id);
+                resourcesMap.set('mca005', r._id);
+            }
         });
 
         const getRowVal = (row, ...aliases) => {
@@ -346,5 +366,113 @@ const deleteUser = async (req, res) => {
     }
 };
 
-module.exports = { addTimetable, blockResource, syncTimetable, uploadTimetableExcel, seedData, getUsers, deleteUser };
+const getTimetables = async (req, res) => {
+    try {
+        const timetables = await Timetable.find().populate('resource').sort({ semester: 1, day_of_week: 1, start_time: 1 });
+        
+        // Group by semester
+        const semGroups = {};
+        for (const entry of timetables) {
+            const sem = entry.semester || 'General';
+            if (!semGroups[sem]) {
+                semGroups[sem] = {
+                    semester: sem,
+                    slotsCount: 0,
+                    subjects: new Set(),
+                    resources: new Set(),
+                    firstCreated: entry.created_at,
+                    entries: []
+                };
+            }
+            semGroups[sem].slotsCount++;
+            if (entry.subject) semGroups[sem].subjects.add(entry.subject);
+            if (entry.resource?.name) semGroups[sem].resources.add(entry.resource.name);
+            semGroups[sem].entries.push(entry);
+        }
+
+        const summary = [];
+        for (const sem of Object.keys(semGroups)) {
+            const grp = semGroups[sem];
+            const bookingsCount = await Booking.countDocuments({ status: 'TIMETABLE', semester: sem });
+            summary.push({
+                semester: sem,
+                slotsCount: grp.slotsCount,
+                bookingsCount,
+                subjects: Array.from(grp.subjects),
+                resources: Array.from(grp.resources),
+                createdAt: grp.firstCreated,
+                entries: grp.entries
+            });
+        }
+
+        const totalTimetableBookings = await Booking.countDocuments({ status: 'TIMETABLE' });
+
+        res.json({
+            totalEntries: timetables.length,
+            totalBookings: totalTimetableBookings,
+            timetables: summary
+        });
+    } catch (err) {
+        console.error('getTimetables error:', err);
+        res.status(500).json({ error: 'Failed to fetch timetables' });
+    }
+};
+
+const deleteTimetableSemester = async (req, res) => {
+    const semParam = req.params.semester || req.query.semester || req.body?.semester;
+    const semester = semParam ? decodeURIComponent(semParam).trim() : null;
+    try {
+        if (!semester) {
+            return res.status(400).json({ error: 'Semester name is required.' });
+        }
+
+        // Delete Timetable slot entries for this semester
+        const ttResult = await Timetable.deleteMany({ semester });
+        
+        // Delete all auto-generated bookings with status TIMETABLE and this semester
+        const bResult = await Booking.deleteMany({ 
+            status: 'TIMETABLE', 
+            semester 
+        });
+
+        res.json({
+            message: `Timetable '${semester}' deleted successfully. Removed ${ttResult.deletedCount} weekly timetable slots and ${bResult.deletedCount} auto-generated classroom bookings.`,
+            deletedTimetableSlots: ttResult.deletedCount,
+            deletedBookings: bResult.deletedCount,
+            semester
+        });
+    } catch (err) {
+        console.error('deleteTimetableSemester error:', err);
+        res.status(500).json({ error: 'Failed to delete timetable' });
+    }
+};
+
+const deleteAllTimetables = async (req, res) => {
+    try {
+        const ttResult = await Timetable.deleteMany({});
+        const bResult = await Booking.deleteMany({ status: 'TIMETABLE' });
+
+        res.json({
+            message: `All timetables deleted. Removed ${ttResult.deletedCount} weekly slots and ${bResult.deletedCount} auto-generated classroom bookings.`,
+            deletedTimetableSlots: ttResult.deletedCount,
+            deletedBookings: bResult.deletedCount
+        });
+    } catch (err) {
+        console.error('deleteAllTimetables error:', err);
+        res.status(500).json({ error: 'Failed to delete all timetables' });
+    }
+};
+
+module.exports = { 
+    addTimetable, 
+    blockResource, 
+    syncTimetable, 
+    uploadTimetableExcel, 
+    seedData, 
+    getUsers, 
+    deleteUser,
+    getTimetables,
+    deleteTimetableSemester,
+    deleteAllTimetables
+};
 

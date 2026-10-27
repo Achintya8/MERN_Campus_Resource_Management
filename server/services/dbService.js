@@ -12,6 +12,7 @@ const defaultResources = [
     { name: 'LAB2', type: 'LAB', capacity: 30, features: 'High-end PCs, AC' },
     { name: 'LAB3', type: 'LAB', capacity: 30, features: 'High-end PCs, AC' },
     { name: 'LAB4', type: 'LAB', capacity: 30, features: 'High-end PCs, AC' },
+    { name: 'LAB8', type: 'LAB', capacity: 30, features: 'High-end PCs, AC, Networking Racks' },
     { name: 'IOT LAB', type: 'LAB', capacity: 25, features: 'Microcontrollers, Sensors, High-Speed Internet' },
     { name: 'MCA SEMINAR HALL', type: 'HALL', capacity: 150, features: 'Audio-Visual System, Stage, AC' }
 ];
